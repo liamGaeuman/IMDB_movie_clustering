@@ -1,0 +1,11 @@
+---
+title: "STAT 5211 IMDB Movie Clustering"
+author: "Liam Gaeuman"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+# Ensure necessary libraries are loaded
+knitr::opts_chunk$set(echo = TRUE)
+```
