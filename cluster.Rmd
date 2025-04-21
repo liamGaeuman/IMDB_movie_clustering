@@ -1,6 +1,6 @@
 ---
-title: "STAT 5211 IMDB Movie Clustering"
-author: "Liam Gaeuman"
+title: "STAT 5211 Final Project: IMDB Movie Clustering"
+author: "Liam Gaeuman and Guiyun Li"
 date: "`r Sys.Date()`"
 output: pdf_document
 ---
@@ -8,4 +8,163 @@ output: pdf_document
 ```{r setup, include=FALSE}
 # Ensure necessary libraries are loaded
 knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+movies <- read.csv("/Users/liamgaeuman/Documents/School/Stat Learning/IMDB_movie_clustering/movies.csv",
+                   header = TRUE)
+movies_df <- as.data.frame(movies)
+```
+
+
+```{r}
+# add a season column
+movies_df$season <- character(nrow(movies_df))
+
+for (i in seq_len(nrow(movies_df))) {
+  month <- sub(" .*", "", movies_df$released[i])
+
+  season <- if (month %in% c("December", "January", "February")) {
+    "winter"
+  } else if (month %in% c("March", "April", "May")) {
+    "spring"
+  } else if (month %in% c("June", "July", "August")) {
+    "summer"
+  } else if (month %in% c("September", "October", "November")) {
+    "fall"
+  } else {
+    "Unknown"  # if month is absent or soemthing weird
+  }
+
+  movies_df$season[i] <- season
+}
+```
+
+
+```{r}
+# # imputate by (genre, rating)
+# movies_df$gross_imp_mean <- movies_df$gross
+
+# for (i in seq_len(nrow(movies_df))) {
+#   if (is.na(movies_df$gross_imp_mean[i])) {
+#     genre_i  <- movies_df$genre[i]
+#     rating_i <- movies_df$rating[i]
+
+#     # subset to same group
+#     subset_df <- movies_df[
+#       movies_df$genre  == genre_i & movies_df$rating == rating_i &
+#         !is.na(movies_df$gross),
+#     ]
+
+#     if (nrow(subset_df) > 0) {
+#       movies_df$gross_imp_mean[i] <- mean(subset_df$gross, na.rm = TRUE)
+#     } else {
+#       subset_df <- movies_df[!is.na(movies_df$gross), ]
+#       movies_df$gross_imp_mean[i] <- mean(subset_df$gross, na.rm = TRUE)
+#     }
+
+#   }
+# }
+```
+
+## Impute missing values for the gross feature using a modified version of KNN
+```{r}
+set.seed(1)
+# Pre-scale numeric features (excluding budget)
+num_vars <- c("votes", "score", "year")
+sapply(movies_df[, num_vars], class)
+num_mat  <- scale(movies_df[, num_vars])
+
+# one hot encode the categoricals we are interested in
+one_hotters  <- model.matrix(~ genre + rating + season - 1, data = movies_df)
+
+# Scale budget separately
+bud_mat <- scale(movies_df$budget)
+
+# Indices for rows needing gross imputation
+pred_idx  <- which(is.na(movies_df$gross))
+# Indices for candidate neighbors (must have non‐missing gross)
+train_idx <- which(!is.na(movies_df$gross))
+
+k <- 5
+movies_df$gross_imp <- movies_df$gross  # initialize
+
+for (j in seq_along(pred_idx)) {
+  i     <- pred_idx[j] # movie i
+  x_num <- num_mat[i, ]
+  x_dum <- one_hotters[i, ]
+  x_bud <- bud_mat[i]   # NA if budget missing
+
+  # subset train features
+  Y_num <- num_mat[train_idx, , drop = FALSE]
+  Y_dum <- one_hotters[train_idx, , drop = FALSE]
+  Y_bud <- bud_mat[train_idx]
+  Y_y   <- movies_df$gross[train_idx]
+
+  # manually compute eucidean distances 
+  d_num <- rowSums((Y_num - x_num)^2)
+  d_dum <- rowSums((Y_dum - x_dum)^2)
+
+  # budget distance only if both present!!!
+  if (!is.na(x_bud)) {
+    bud_diff <- Y_bud - x_bud
+    bud_diff[is.na(bud_diff)] <- 0
+    d_bud <- bud_diff^2
+  } else {
+    d_bud <- rep(0, length(train_idx))
+  }
+
+  # add them for total distance
+  d2 <- d_num + d_dum + d_bud
+
+  
+  nn <- order(d2)[1:k] # get the K nearest neighbors!
+
+  movies_df$gross_imp[i] <- mean(Y_y[nn], na.rm = TRUE)
+}
+
+movies_df$gross <- movies_df$gross_imp #replace NAs with imputed grosses
+
+movies_df$gross_imp <- NULL # remove temp col
+```
+
+## Impute missing values for the budget feature using KNN from the class package
+```{r}
+library(class)
+set.seed(1)
+
+# numeric factors 
+num_vars <- c("votes", "score", "gross", "year")
+num_mat  <- scale(movies_df[, num_vars])
+
+# one hot encode categorical factors
+dum_mat  <- model.matrix(~ genre + rating + season - 1, data = movies_df)
+
+# combine into one feature matrix
+feat_mat <- cbind(num_mat, dum_mat)
+
+train_indices <- which(!is.na(movies_df$budget))
+test_indices  <- which(is.na(movies_df$budget))
+
+knn.pred <- knn(
+  train = feat_mat[train_indices, ], 
+  test  = feat_mat[test_indices, ], 
+  cl    = movies_df$budget[train_indices], 
+  k     = 5
+)
+
+budget_imp <- as.numeric(as.character(knn.pred)) #convert to numeric
+
+movies_df$budget_imp <- movies_df$budget
+movies_df$budget_imp[test.idx] <- budget_imp
+
+movies_df$budget <- movies_df$budget_imp #replace NAs with imputed budgets
+movies_df$budget_imp <- NULL # remove temp col
+```
+
+
+## Start Clustering!!!!!
+```{r}
+
 ```
